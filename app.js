@@ -8,8 +8,9 @@ const PORT = process.env.PORT || 3000;
 const XIAOZHI_WSS = process.env.XIAOZHI_WSS;
 const MAKE_URL = "https://hook.eu1.make.com/4xz6cjhsqhkq7qycw1enr19hqk2vhbna";
 
+// Health check endpoint for UptimeRobot
 app.get('/', (req, res) => {
-  res.send('🚀 Xiaozhi Bridge is Live on Render!');
+  res.send('🚀 Xiaozhi Bridge is 100% Active and Awake!');
 });
 
 app.listen(PORT, () => {
@@ -19,29 +20,36 @@ app.listen(PORT, () => {
 
 function connectXiaozhi() {
   if (!XIAOZHI_WSS) {
-    console.error("❌ XIAOZHI_WSS environment variable is missing!");
+    console.error("❌ XIAOZHI_WSS variable missing!");
     return;
   }
   
   console.log("Connecting to Xiaozhi MCP via Cloud...");
   const ws = new WebSocket(XIAOZHI_WSS);
+  let pingInterval;
 
   ws.on('open', () => {
-    console.log("🚀 Connected! Sending MCP initialized notification...");
+    console.log("🚀 Bridge Live! Handshaking Xiaozhi...");
     
-    // Xiaozhi Official Protocol Handshake
+    // Initializing Handshake
     ws.send(JSON.stringify({
       jsonrpc: "2.0",
       method: "notifications/initialized",
       params: {}
     }));
+
+    // Keep-alive heartbeat ping every 30s
+    pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 30000);
   });
 
-  ws.on('message', (data) => {
+  ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data);
 
-      // Handle Xiaozhi MCP Initialization query
       if (msg.method === "initialize") {
         ws.send(JSON.stringify({
           jsonrpc: "2.0",
@@ -49,14 +57,13 @@ function connectXiaozhi() {
           result: {
             protocolVersion: "2024-11-05",
             capabilities: { tools: {} },
-            serverInfo: { name: "Render-WhatsApp-Bridge", version: "1.0.0" }
+            serverInfo: { name: "Render-WhatsApp-Dynamic-Bridge", version: "2.0.0" }
           }
         }));
       }
 
-      // Respond when Xiaozhi LLM queries available tools
+      // Dynamic Schema requesting Recipient and Message
       if (msg.method === "tools/list") {
-        console.log("📋 Xiaozhi requested tools list. Sending self.trigger_whatsapp...");
         ws.send(JSON.stringify({
           jsonrpc: "2.0",
           id: msg.id,
@@ -64,10 +71,20 @@ function connectXiaozhi() {
             tools: [
               {
                 name: "self.trigger_whatsapp",
-                description: "Open, launch, or trigger WhatsApp on the user's mobile device.",
+                description: "Send a WhatsApp message or open a chat with a specific contact.",
                 inputSchema: {
                   type: "object",
-                  properties: {}
+                  properties: {
+                    recipient: { 
+                      type: "string", 
+                      description: "The name or phone number of the contact." 
+                    },
+                    message: { 
+                      type: "string", 
+                      description: "The message text to send." 
+                    }
+                  },
+                  required: ["recipient", "message"]
                 }
               }
             ]
@@ -75,16 +92,25 @@ function connectXiaozhi() {
         }));
       }
 
-      // Execute action when Xiaozhi LLM triggers the tool
+      // Handle function call and extract arguments
       if (msg.method === "tools/call" && msg.params && (msg.params.name === "self.trigger_whatsapp" || msg.params.name === "trigger_whatsapp")) {
-        console.log("🫀 Voice command received in Cloud! Pinging Make.com...");
-        axios.get(MAKE_URL);
+        const args = msg.params.arguments || {};
+        const recipient = args.recipient || "Contact";
+        const messageText = args.message || "";
+
+        console.log(`🫀 Command Received -> Contact: ${recipient} | Text: ${messageText}`);
+
+        // Post variables directly to Make.com
+        await axios.post(MAKE_URL, { 
+          recipient: recipient, 
+          message: messageText 
+        });
 
         ws.send(JSON.stringify({
           jsonrpc: "2.0",
           id: msg.id,
           result: {
-            content: [{ type: "text", text: "WhatsApp launched successfully." }]
+            content: [{ type: "text", text: `WhatsApp message triggered for ${recipient}.` }]
           }
         }));
       }
@@ -94,12 +120,13 @@ function connectXiaozhi() {
   });
 
   ws.on('close', () => {
-    console.log("⚠️ Connection closed. Reconnecting in 5s...");
+    clearInterval(pingInterval);
+    console.log("⚠️ Disconnected! Reconnecting in 5s...");
     setTimeout(connectXiaozhi, 5000);
   });
 
   ws.on('error', (err) => {
-    console.error("Connection Error:", err.message);
+    clearInterval(pingInterval);
     ws.close();
   });
 }
