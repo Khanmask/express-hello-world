@@ -4,8 +4,12 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-// Your Make.com Webhook Endpoint
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://hook.eu1.make.com/4xz6cjhsqhkq7qycw1enr19hqk2vhbna';
+
+// Root health check
+app.get('/', (req, res) => {
+  res.send('Xiaozhi MCP Server is Live & Running!');
+});
 
 // SSE / MCP Endpoint for Xiaozhi Manifest
 app.get('/mcp', (req, res) => {
@@ -13,7 +17,6 @@ app.get('/mcp', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  // MCP Manifest defining the dynamic open_app tool
   const manifest = {
     tools: [
       {
@@ -42,7 +45,6 @@ app.post('/mcp', async (req, res) => {
     const { params } = req.body;
     const appName = params?.message || req.body?.message || 'WhatsApp';
 
-    // Forward the dynamic app name to Make.com
     await axios.post(MAKE_WEBHOOK_URL, { message: appName });
 
     res.json({
