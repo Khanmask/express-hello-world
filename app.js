@@ -5,13 +5,13 @@ const WebSocket = require('ws');
 const app = express();
 app.use(express.json());
 
-// Fresh Make.com Webhook Endpoint
+// Make.com Webhook Endpoint
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://hook.eu1.make.com/tinwhmhhyctzfcjt3drh5a3wjf4yf891';
 
-// Xiaozhi WebSocket Endpoint
-const XIAOZHI_WSS_URL = process.env.XIAOZHI_WSS_URL || 'wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwNTM0MzgsImFnZW50SWQiOjI0MjgyNDYsImVuZHBvaW50SWQiOjJhZ2VudF8yNDI4MjQ2IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MDc5NDMzNiwiZXhwIjoxODIyMzUxOTM2fQ.ZNSuNxasrdt4mkuRgL3Cyx6kkJZA9lN8TnbDc38DuRHAIrBba-AHeWggoDXBpnLhg7uy_0d67pdP5drfvroo3w';
+// Fresh Xiaozhi WebSocket Endpoint
+const XIAOZHI_WSS_URL = process.env.XIAOZHI_WSS_URL || 'wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwNTM0MzgsImFnZW50SWQiOjI0MjgyNDYsImVuZHBvaW50SWQiOiJhZ2VudF8yNDI4MjQ2IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MDc5NTExMSwiZXhwIjoxODIyMzUyNzExfQ.M2wLSSUIcxdqUE9ynICOk_y0VPVTwHEictIhjfZQiHavyNrNESb_Von6UROixZaWDd8H-5sw3fLCGMujMOHStA';
 
-// Root health check
+// Health check route
 app.get('/', (req, res) => {
   res.send('Xiaozhi MCP Server is Live & Connected!');
 });
