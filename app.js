@@ -6,7 +6,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const XIAOZHI_WSS = process.env.XIAOZHI_WSS;
-// Verified active Make.com webhook URL
 const MAKE_URL = "https://hook.eu1.make.com/4xz6cjhsqhkq7qycw1enr19hqk2vhbna";
 
 app.get('/', (req, res) => {
@@ -28,24 +27,44 @@ function connectXiaozhi() {
   const ws = new WebSocket(XIAOZHI_WSS);
 
   ws.on('open', () => {
-    console.log("🚀 Bridge Live on Render! Connected to Xiaozhi MCP.");
+    console.log("🚀 Connected! Sending MCP initialized notification...");
+    
+    // Xiaozhi Official Protocol Handshake
+    ws.send(JSON.stringify({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+      params: {}
+    }));
   });
 
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data);
 
+      // Handle Xiaozhi MCP Initialization query
+      if (msg.method === "initialize") {
+        ws.send(JSON.stringify({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            protocolVersion: "2024-11-05",
+            capabilities: { tools: {} },
+            serverInfo: { name: "Render-WhatsApp-Bridge", version: "1.0.0" }
+          }
+        }));
+      }
+
       // Respond when Xiaozhi LLM queries available tools
       if (msg.method === "tools/list") {
-        console.log("📋 Xiaozhi requested tools list. Sending trigger_whatsapp...");
+        console.log("📋 Xiaozhi requested tools list. Sending self.trigger_whatsapp...");
         ws.send(JSON.stringify({
           jsonrpc: "2.0",
           id: msg.id,
           result: {
             tools: [
               {
-                name: "trigger_whatsapp",
-                description: "CRITICAL: You MUST call this tool whenever the user asks to open WhatsApp, check WhatsApp, or launch WhatsApp.",
+                name: "self.trigger_whatsapp",
+                description: "Open, launch, or trigger WhatsApp on the user's mobile device.",
                 inputSchema: {
                   type: "object",
                   properties: {}
@@ -57,7 +76,7 @@ function connectXiaozhi() {
       }
 
       // Execute action when Xiaozhi LLM triggers the tool
-      if (msg.method === "tools/call" && msg.params && msg.params.name === "trigger_whatsapp") {
+      if (msg.method === "tools/call" && msg.params && (msg.params.name === "self.trigger_whatsapp" || msg.params.name === "trigger_whatsapp")) {
         console.log("🫀 Voice command received in Cloud! Pinging Make.com...");
         axios.get(MAKE_URL);
 
@@ -65,7 +84,7 @@ function connectXiaozhi() {
           jsonrpc: "2.0",
           id: msg.id,
           result: {
-            content: [{ type: "text", text: "WhatsApp opened successfully." }]
+            content: [{ type: "text", text: "WhatsApp launched successfully." }]
           }
         }));
       }
