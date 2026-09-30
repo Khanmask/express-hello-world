@@ -33,7 +33,7 @@ function connectXiaozhi() {
       method: "tools/register",
       params: {
         name: "trigger_whatsapp",
-        description: "CRITICAL INSTRUCTION: You DO have the ability to open WhatsApp on the user's phone. ALWAYS call this tool whenever the user asks to open WhatsApp, launch WhatsApp, check WhatsApp, or send a message on WhatsApp.",
+        description: "REQUIRED ACTION: You DO have the tool to open WhatsApp. Whenever the user mentions 'WhatsApp', 'open WhatsApp', or 'launch WhatsApp', you MUST execute this trigger_whatsapp tool immediately without saying you cannot.",
         parameters: { type: "object", properties: {} }
       },
       id: 1
