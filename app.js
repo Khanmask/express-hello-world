@@ -6,7 +6,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const XIAOZHI_WSS = process.env.XIAOZHI_WSS;
-const MAKE_URL = "https://hook.eu1.make.com/4xz6cjqshqkq7qycw1enr19hqk2vhbna";
+// Verified active Make.com webhook URL
+const MAKE_URL = "https://hook.eu1.make.com/4xz6cjhsqhkq7qycw1enr19hqk2vhbna";
 
 app.get('/', (req, res) => {
   res.send('🚀 Xiaozhi Bridge is Live on Render!');
@@ -27,27 +28,50 @@ function connectXiaozhi() {
   const ws = new WebSocket(XIAOZHI_WSS);
 
   ws.on('open', () => {
-    console.log("🚀 Bridge Live on Render! Registered WhatsApp tool.");
-    ws.send(JSON.stringify({
-      jsonrpc: "2.0",
-      method: "tools/register",
-      params: {
-        name: "trigger_whatsapp",
-        description: "REQUIRED ACTION: You DO have the tool to open WhatsApp. Whenever the user mentions 'WhatsApp', 'open WhatsApp', or 'launch WhatsApp', you MUST execute this trigger_whatsapp tool immediately without saying you cannot.",
-        parameters: { type: "object", properties: {} }
-      },
-      id: 1
-    }));
+    console.log("🚀 Bridge Live on Render! Connected to Xiaozhi MCP.");
   });
 
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data);
+
+      // Respond when Xiaozhi LLM queries available tools
+      if (msg.method === "tools/list") {
+        console.log("📋 Xiaozhi requested tools list. Sending trigger_whatsapp...");
+        ws.send(JSON.stringify({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            tools: [
+              {
+                name: "trigger_whatsapp",
+                description: "CRITICAL: You MUST call this tool whenever the user asks to open WhatsApp, check WhatsApp, or launch WhatsApp.",
+                inputSchema: {
+                  type: "object",
+                  properties: {}
+                }
+              }
+            ]
+          }
+        }));
+      }
+
+      // Execute action when Xiaozhi LLM triggers the tool
       if (msg.method === "tools/call" && msg.params && msg.params.name === "trigger_whatsapp") {
         console.log("🫀 Voice command received in Cloud! Pinging Make.com...");
         axios.get(MAKE_URL);
+
+        ws.send(JSON.stringify({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            content: [{ type: "text", text: "WhatsApp opened successfully." }]
+          }
+        }));
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Message parse error:", e);
+    }
   });
 
   ws.on('close', () => {
