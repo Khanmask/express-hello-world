@@ -1,94 +1,131 @@
-const express = require('express');
-const axios = require('axios');
 const WebSocket = require('ws');
+const http = require('http');
 
-const app = express();
-app.use(express.json());
-
-// Make.com Webhook Endpoint
-const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://hook.eu1.make.com/tinwhmhhyctzfcjt3drh5a3wjf4yf891';
-
-// Fresh Xiaozhi WebSocket Endpoint
-const XIAOZHI_WSS_URL = process.env.XIAOZHI_WSS_URL || 'wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwNTM0MzgsImFnZW50SWQiOjI0MjgyNDYsImVuZHBvaW50SWQiOiJhZ2VudF8yNDI4MjQ2IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MDc5NTExMSwiZXhwIjoxODIyMzUyNzExfQ.M2wLSSUIcxdqUE9ynICOk_y0VPVTwHEictIhjfZQiHavyNrNESb_Von6UROixZaWDd8H-5sw3fLCGMujMOHStA';
-
-// Health check route
-app.get('/', (req, res) => {
-  res.send('Xiaozhi MCP Server is Live & Connected!');
+// Create a basic HTTP server so Render health checks pass
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Xiaozhi MCP Bridge is running!\n');
 });
 
-// Establish WebSocket Connection to Xiaozhi
-function connectXiaozhi() {
-  const ws = new WebSocket(XIAOZHI_WSS_URL);
+// Attach WebSocket server
+const wss = new WebSocket.Server({ server });
 
-  ws.on('open', () => {
-    console.log('Connected directly to Xiaozhi WebSocket!');
-    
-    // Register tool manifest over WebSocket
-    const manifest = {
-      jsonrpc: '2.0',
-      method: 'initialize',
-      params: {
-        tools: [
-          {
-            name: 'open_app',
-            description: 'Opens any requested application on the user\'s Android phone',
-            parameters: {
-              type: 'object',
-              properties: {
-                message: {
-                  type: 'string',
-                  description: 'The name of the application to open, e.g., YouTube, WhatsApp, Instagram, Spotify'
-                }
-              },
-              required: ['message']
+const MAKE_WEBHOOK_URL = 'https://hook.eu1.make.com/tinwhmhhyctzfcjt3drh5a3wjf4yf891';
+
+wss.on('connection', (ws) => {
+  console.log('Client connected (Xiaozhi)');
+
+  ws.on('message', async (message) => {
+    try {
+      const request = JSON.parse(message);
+      console.log('Received method:', request.method, 'ID:', request.id);
+
+      // 1. Handshake: Ping
+      if (request.method === 'ping') {
+        ws.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {}
+        }));
+      }
+
+      // 2. Handshake: Initialize
+      else if (request.method === 'initialize') {
+        ws.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {}
+            },
+            serverInfo: {
+              name: 'xiaozhi-app-launcher',
+              version: '1.0.0'
             }
           }
-        ]
+        }));
       }
-    };
-    ws.send(JSON.stringify(manifest));
-  });
 
-  ws.on('message', async (data) => {
-    try {
-      const message = JSON.parse(data);
-      console.log('Received from Xiaozhi:', message);
+      // 3. Tool Discovery: tools/list (Registers the tool in Xiaozhi UI)
+      else if (request.method === 'tools/list') {
+        ws.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            tools: [
+              {
+                name: 'open_app',
+                description: 'Launches an Android application or game on the user device by name (e.g., YouTube, WhatsApp, Bloodstrike, PUBG)',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    message: {
+                      type: 'string',
+                      description: 'The exact name of the app or game to launch'
+                    }
+                  },
+                  required: ['message']
+                }
+              }
+            ]
+          }
+        }));
+      }
 
-      if (message.method === 'tools/call' || message.params?.name === 'open_app') {
-        const appName = message.params?.arguments?.message || message.params?.message || 'WhatsApp';
+      // 4. Execution: tools/call (Calls Make.com Webhook)
+      else if (request.method === 'tools/call') {
+        const appName = request.params?.arguments?.message || 'YouTube';
+        console.log(`Triggering app launch for: ${appName}`);
 
-        // Forward payload to Make.com
-        await axios.post(MAKE_WEBHOOK_URL, { message: appName });
+        // Dispatch call to Make.com Webhook
+        try {
+          await fetch(`${MAKE_WEBHOOK_URL}?message=${encodeURIComponent(appName)}`);
+          console.log(`Successfully dispatched ${appName} to Make.com`);
+        } catch (fetchError) {
+          console.error('Failed to dispatch to Make.com:', fetchError);
+        }
 
-        if (message.id) {
-          const response = {
+        // Send confirmation back to Xiaozhi LLM
+        ws.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: `Successfully launched ${appName} on your phone!`
+              }
+            ]
+          }
+        }));
+      }
+
+      // Fallback for unknown methods
+      else {
+        if (request.id !== undefined) {
+          ws.send(JSON.stringify({
             jsonrpc: '2.0',
-            id: message.id,
-            result: {
-              content: [{ type: 'text', text: `Opening ${appName}...` }]
+            id: request.id,
+            error: {
+              code: -32601,
+              message: 'Method not found'
             }
-          };
-          ws.send(JSON.stringify(response));
+          }));
         }
       }
+
     } catch (err) {
-      console.error('Error handling WebSocket message:', err.message);
+      console.error('Error handling WebSocket message:', err);
     }
   });
 
   ws.on('close', () => {
-    console.log('Xiaozhi WebSocket disconnected. Reconnecting in 5s...');
-    setTimeout(connectXiaozhi, 5000);
+    console.log('Client disconnected');
   });
+});
 
-  ws.on('error', (err) => {
-    console.error('WebSocket Error:', err.message);
-  });
-}
-
-connectXiaozhi();
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`HTTP Server listening on port ${PORT}`);
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
 });
