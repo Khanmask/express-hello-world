@@ -1,53 +1,45 @@
-const WebSocket = require('ws');
+const express = require('express');
 const http = require('http');
+const WebSocket = require('ws');
 
-// Create a basic HTTP server so Render health checks pass
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Xiaozhi MCP Bridge is running!\n');
-});
-
-// Attach WebSocket server
+const app = express();
+const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const MAKE_WEBHOOK_URL = 'https://hook.eu1.make.com/tinwhmhhyctzfcjt3drh5a3wjf4yf891';
 
+// Health check endpoint for Render
+app.get('/', (req, res) => {
+  res.send('Xiaozhi MCP Bridge is live!');
+});
+
 wss.on('connection', (ws) => {
-  console.log('Client connected (Xiaozhi)');
+  console.log('Xiaozhi Connected!');
 
   ws.on('message', async (message) => {
     try {
       const request = JSON.parse(message);
-      console.log('Received method:', request.method, 'ID:', request.id);
+      console.log('Method received:', request.method);
 
-      // 1. Handshake: Ping
+      // 1. Ping
       if (request.method === 'ping') {
-        ws.send(JSON.stringify({
-          jsonrpc: '2.0',
-          id: request.id,
-          result: {}
-        }));
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} }));
       }
 
-      // 2. Handshake: Initialize
+      // 2. Initialize
       else if (request.method === 'initialize') {
         ws.send(JSON.stringify({
           jsonrpc: '2.0',
           id: request.id,
           result: {
             protocolVersion: '2024-11-05',
-            capabilities: {
-              tools: {}
-            },
-            serverInfo: {
-              name: 'xiaozhi-app-launcher',
-              version: '1.0.0'
-            }
+            capabilities: { tools: {} },
+            serverInfo: { name: 'xiaozhi-bridge', version: '1.0.0' }
           }
         }));
       }
 
-      // 3. Tool Discovery: tools/list (Registers the tool in Xiaozhi UI)
+      // 3. Tools List
       else if (request.method === 'tools/list') {
         ws.send(JSON.stringify({
           jsonrpc: '2.0',
@@ -60,10 +52,7 @@ wss.on('connection', (ws) => {
                 inputSchema: {
                   type: 'object',
                   properties: {
-                    message: {
-                      type: 'string',
-                      description: 'The exact name of the app or game to launch'
-                    }
+                    message: { type: 'string', description: 'Name of the app' }
                   },
                   required: ['message']
                 }
@@ -73,59 +62,32 @@ wss.on('connection', (ws) => {
         }));
       }
 
-      // 4. Execution: tools/call (Calls Make.com Webhook)
+      // 4. Tools Call
       else if (request.method === 'tools/call') {
         const appName = request.params?.arguments?.message || 'YouTube';
-        console.log(`Triggering app launch for: ${appName}`);
-
-        // Dispatch call to Make.com Webhook
+        
+        // Trigger Make.com Webhook
         try {
           await fetch(`${MAKE_WEBHOOK_URL}?message=${encodeURIComponent(appName)}`);
-          console.log(`Successfully dispatched ${appName} to Make.com`);
-        } catch (fetchError) {
-          console.error('Failed to dispatch to Make.com:', fetchError);
+        } catch (e) {
+          console.error('Make webhook error:', e);
         }
 
-        // Send confirmation back to Xiaozhi LLM
         ws.send(JSON.stringify({
           jsonrpc: '2.0',
           id: request.id,
           result: {
-            content: [
-              {
-                type: 'text',
-                text: `Successfully launched ${appName} on your phone!`
-              }
-            ]
+            content: [{ type: 'text', text: `Launching ${appName}...` }]
           }
         }));
       }
-
-      // Fallback for unknown methods
-      else {
-        if (request.id !== undefined) {
-          ws.send(JSON.stringify({
-            jsonrpc: '2.0',
-            id: request.id,
-            error: {
-              code: -32601,
-              message: 'Method not found'
-            }
-          }));
-        }
-      }
-
     } catch (err) {
-      console.error('Error handling WebSocket message:', err);
+      console.error('JSON Parsing error:', err);
     }
-  });
-
-  ws.on('close', () => {
-    console.log('Client disconnected');
   });
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
